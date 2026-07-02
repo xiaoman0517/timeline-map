@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Google Timeline Map Visualization</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #e0e0e0; }
+  
+  #header {
+    background: #16213e;
+    padding: 16px 24px;
+    border-bottom: 1px solid #0f3460;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  #header h1 { font-size: 20px; color: #e94560; }
+  #header .stats { font-size: 13px; color: #a0a0b0; }
+  
+  #container {
+    display: flex;
+    height: calc(100vh - 60px);
+  }
+  
+  #map {
+    flex: 1;
+    min-width: 0;
+  }
+  
+  #sidebar {
+    width: 420px;
+    background: #16213e;
+    border-left: 1px solid #0f3460;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  
+  #sidebar-tabs {
+    display: flex;
+    border-bottom: 1px solid #0f3460;
+  }
+  .tab-btn {
+    flex: 1;
+    padding: 10px;
+    background: none;
+    border: none;
+    color: #a0a0b0;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.2s;
+  }
+  .tab-btn:hover { background: #1a1a3e; }
+  .tab-btn.active { color: #e94560; border-bottom: 2px solid #e94560; background: #1a1a3e; }
+  
+  .tab-content { display: none; flex: 1; overflow-y: auto; }
+  .tab-content.active { display: block; }
+  
+  #log-list { padding: 8px; }
+  .log-entry {
+    padding: 8px 10px;
+    border-bottom: 1px solid #0f3460;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .log-entry:hover { background: #1a1a3e; }
+  .log-entry.highlighted { background: #1a5276; border-left: 3px solid #e94560; }
+  .log-entry .time { color: #e94560; font-weight: 600; }
+  .log-entry .coords { color: #888; font-size: 11px; }
+  .log-entry .activity { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; margin-left: 4px; }
+  .activity-IN_PASSENGER_VEHICLE { background: #e94560; color: #fff; }
+  .activity-WALKING { background: #0f3460; color: #e0e0e0; }
+  .activity-IN_BUS { background: #533483; color: #fff; }
+  .activity-ON_BICYCLE { background: #27ae60; color: #fff; }
+  .activity-IN_TRAIN { background: #f39c12; color: #fff; }
+  .activity-CYCLING { background: #3498db; color: #fff; }
+  .activity-MOTORCYCLING { background: #e67e22; color: #fff; }
+  .activity-UNKNOWN { background: #555; color: #fff; }
+  
+  #summary-content { padding: 16px; }
+  .summary-stat { margin-bottom: 12px; }
+  .summary-stat .label { color: #888; font-size: 12px; }
+  .summary-stat .value { font-size: 18px; font-weight: 600; color: #e94560; }
+  
+  #date-filter {
+    padding: 10px 12px;
+    border-bottom: 1px solid #0f3460;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  #date-filter input { 
+    flex: 1; padding: 6px 8px; border: 1px solid #0f3460; 
+    background: #1a1a3e; color: #e0e0e0; border-radius: 4px; font-size: 12px;
+  }
+  #date-filter button {
+    padding: 6px 12px; background: #e94560; color: #fff; border: none;
+    border-radius: 4px; cursor: pointer; font-size: 12px;
+  }
+  #date-filter button:hover { background: #d63851; }
+  
+  .legend {
+    padding: 8px 12px;
+    border-bottom: 1px solid #0f3460;
+    font-size: 11px;
+    color: #888;
+  }
+  .legend span { display: inline-block; margin-right: 12px; }
+  .legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+  
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: #16213e; }
+  ::-webkit-scrollbar-thumb { background: #0f3460; border-radius: 3px; }
+  
+  @media (max-width: 768px) {
+    #container { flex-direction: column; }
+    #sidebar { width: 100%; height: 40vh; border-left: none; border-top: 1px solid #0f3460; }
+  }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>📍 Timeline Map Visualization</h1>
+  <div class="stats" id="header-stats">Loading...</div>
+</div>
+
+<div id="container">
+  <div id="map"></div>
+  <div id="sidebar">
+    <div id="date-filter">
+      <input type="date" id="filter-date" placeholder="MM/DD/YYYY" />
+      <span style="font-size:11px;color:#888;margin-left:4px;">Filter by date</span>
+      <button onclick="applyFilters()">Filter</button>
+      <button onclick="clearFilters()" style="background:#333">Clear</button>
+    </div>
+    <div id="activity-filter" style="padding:8px 12px;border-bottom:1px solid #0f3460;">
+      <div style="font-size:11px;color:#888;margin-bottom:6px;">Filter by activity:</div>
+      <div id="activity-checkboxes" style="display:flex;flex-wrap:wrap;gap:6px;">
+        <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:3px;color:#e0e0e0;">
+          <input type="checkbox" class="activity-cb" value="IN_PASSENGER_VEHICLE" checked /><span class="dot" style="background:#e94560;width:8px;height:8px;display:inline-block;border-radius:50%;"></span>Vehicle
+        </label>
+        <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:3px;color:#e0e0e0;">
+          <input type="checkbox" class="activity-cb" value="WALKING" checked /><span class="dot" style="background:#27ae60;width:8px;height:8px;display:inline-block;border-radius:50%;"></span>Walking
+        </label>
+        <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:3px;color:#e0e0e0;">
+          <input type="checkbox" class="activity-cb" value="IN_TRAIN" checked /><span class="dot" style="background:#f39c12;width:8px;height:8px;display:inline-block;border-radius:50%;"></span>Train
+        </label>
+        <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:3px;color:#e0e0e0;">
+          <input type="checkbox" class="activity-cb" value="IN_BUS" checked /><span class="dot" style="background:#533483;width:8px;height:8px;display:inline-block;border-radius:50%;"></span>Bus
+        </label>
+        <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:3px;color:#e0e0e0;">
+          <input type="checkbox" class="activity-cb" value="CYCLING" checked /><span class="dot" style="background:#3498db;width:8px;height:8px;display:inline-block;border-radius:50%;"></span>Bike
+        </label>
+        <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:3px;color:#e0e0e0;">
+          <input type="checkbox" class="activity-cb" value="MOTORCYCLING" checked /><span class="dot" style="background:#e67e22;width:8px;height:8px;display:inline-block;border-radius:50%;"></span>Motorcycle
+        </label>
+        <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:3px;color:#e0e0e0;">
+          <input type="checkbox" class="activity-cb" value="__unknown__" checked /><span class="dot" style="background:#555;width:8px;height:8px;display:inline-block;border-radius:50%;"></span>Other
+        </label>
+      </div>
+    </div>
+    <div id="sidebar-tabs">
+      <button class="tab-btn active" onclick="switchTab('log')">📋 Street Log</button>
+      <button class="tab-btn" onclick="switchTab('summary')">📊 Summary</button>
+    </div>
+    <div id="log-list" class="tab-content active"></div>
+    <div id="summary-content" class="tab-content"></div>
+  </div>
+</div>
+
+<script src="timeline_data.js"></script>
+<script>
+// --- Map Configuration ---
+// Option A: Google Maps (recommended - matches client's request)
+// Uses Google Maps tiles via a compatible tile server (no API key required for basic tiles)
+const googleStreets = L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+  maxZoom: 20,
+  attribution: '&copy; Google'
+});
+
+const googleSatellite = L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+  maxZoom: 20,
+  attribution: '&copy; Google'
+});
+
+const googleHybrid = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+  maxZoom: 20,
+  attribution: '&copy; Google'
+});
+
+// Option B: OpenStreetMap (fallback)
+const osmStreets = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  maxZoom: 19
+});
+
+const map = L.map('map', {
+  zoomControl: true,
+  attributionControl: true,
+  layers: [googleStreets]
+}).setView([40.91, -74.06], 13);
+
+// Base layer control for switching maps
+const baseLayers = {
+  'Google Streets': googleStreets,
+  'Google Satellite': googleSatellite,
+  'Google Hybrid': googleHybrid,
+  'OpenStreetMap': osmStreets
+};
+
+L.control.layers(baseLayers, null, { position: 'topright' }).addTo(map);
+
+const activityColors = {
+  'IN_PASSENGER_VEHICLE': '#e94560',
+  'WALKING': '#27ae60',
+  'IN_BUS': '#533483',
+  'ON_BICYCLE': '#3498db',
+  'IN_TRAIN': '#f39c12',
+  'IN_SUBWAY': '#f39c12',
+  'CYCLING': '#3498db',
+  'MOTORCYCLING': '#e67e22',
+  'UNKNOWN': '#888888'
+};
+
+const activityLabels = {
+  'IN_PASSENGER_VEHICLE': 'Vehicle',
+  'WALKING': 'Walking',
+  'IN_BUS': 'Bus',
+  'ON_BICYCLE': 'Bicycle',
+  'IN_TRAIN': 'Train',
+  'IN_SUBWAY': 'Subway',
+  'CYCLING': 'Cycling',
+  'MOTORCYCLING': 'Motorcycle',
+  'UNKNOWN': 'Unknown'
+};
+
+let allPolylines = [];
+let allMarkers = [];
+let allSegments = [];
+let filteredSegments = [];
+
+function formatTime(isoStr) {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  return d.toLocaleString('en-US', { 
+    month: 'short', day: 'numeric', 
+    hour: '2-digit', minute: '2-digit',
+    timeZone: 'America/New_York'
+  });
+}
+
+function formatTimeShort(isoStr) {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  return d.toLocaleString('en-US', { 
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    timeZone: 'America/New_York'
+  });
+}
+
+function formatDate(isoStr) {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function getActivityColor(type) {
+  if (!type) return '#555555';
+  return activityColors[type] || '#888888';
+}
+
+function buildSummary() {
+  const segs = filteredSegments;
+  let totalDist = 0;
+  let totalPoints = 0;
+  let activityCounts = {};
+  let dateRange = new Set();
+  
+  segs.forEach(s => {
+    if (s.distanceMeters) totalDist += s.distanceMeters;
+    totalPoints += s.points.length;
+    if (s.activityType) {
+      activityCounts[s.activityType] = (activityCounts[s.activityType] || 0) + 1;
+    }
+    if (s.startTime) dateRange.add(formatDate(s.startTime));
+  });
+  
+  const distKm = (totalDist / 1000).toFixed(1);
+  const distMi = (totalDist / 1609.34).toFixed(1);
+  
+  let html = `
+    <div class="summary-stat"><div class="label">Total Distance</div><div class="value">${distKm} km (${distMi} mi)</div></div>
+    <div class="summary-stat"><div class="label">GPS Points</div><div class="value">${totalPoints.toLocaleString()}</div></div>
+    <div class="summary-stat"><div class="label">Segments</div><div class="value">${segs.length}</div></div>
+    <div class="summary-stat"><div class="label">Date Range</div><div class="value">${dateRange.size} days</div></div>
+    <div class="summary-stat"><div class="label">Activity Breakdown</div><div class="value" style="font-size:14px;">`;
+  
+  for (const [type, count] of Object.entries(activityCounts).sort((a,b) => b[1]-a[1])) {
+    html += `<div style="margin-top:4px;"><span class="dot" style="background:${getActivityColor(type)};width:8px;height:8px;display:inline-block;border-radius:50%;margin-right:6px;"></span>${activityLabels[type] || type}: ${count}</div>`;
+  }
+  
+  html += `</div></div>`;
+  document.getElementById('summary-content').innerHTML = html;
+}
+
+function buildLog() {
+  const container = document.getElementById('log-list');
+  container.innerHTML = '';
+  
+  if (filteredSegments.length === 0) {
+    container.innerHTML = '<div style="padding:20px;text-align:center;color:#888;">No data for selected date</div>';
+    return;
+  }
+  
+  let entryIndex = 0;
+  
+  filteredSegments.forEach((seg, segIdx) => {
+    if (seg.points.length === 0) return;
+    
+    const pts = seg.points;
+    const firstPt = pts[0];
+    const lastPt = pts[pts.length - 1];
+    const actType = seg.activityType;
+    const actLabel = activityLabels[actType] || 'Unknown';
+    const actColor = getActivityColor(actType);
+    
+    // Segment entry (clickable row, not individual points)
+    const entry = document.createElement('div');
+    entry.className = 'log-entry';
+    entry.setAttribute('data-seg', segIdx);
+    
+    const startTime = formatTimeShort(firstPt.time);
+    const endTime = formatTimeShort(lastPt.time);
+    const dist = seg.distanceMeters ? ` ${(seg.distanceMeters / 1000).toFixed(2)} km` : '';
+    const ptCount = pts.length;
+    
+    entry.innerHTML = `
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${actColor};flex-shrink:0;"></span>
+        <span class="activity activity-${actType || 'UNKNOWN'}" style="font-size:10px;padding:1px 5px;border-radius:3px;background:${actColor};color:#fff;">${actLabel}</span>
+        <span class="time">${startTime} - ${endTime}</span>
+        <span style="font-size:10px;color:#888;">${ptCount} pts${dist}</span>
+      </div>
+      <div class="coords">${firstPt.lat.toFixed(5)}, ${firstPt.lng.toFixed(5)} → ${lastPt.lat.toFixed(5)}, ${lastPt.lng.toFixed(5)}</div>
+    `;
+    
+    entry.addEventListener('click', () => {
+      highlightSegment(segIdx);
+    });
+    
+    container.appendChild(entry);
+    entryIndex++;
+  });
+}
+
+function highlightSegment(segIdx) {
+  // Reset all polylines
+  allPolylines.forEach((pl, i) => {
+    if (i === segIdx) {
+      pl.setStyle({ weight: 6, opacity: 1.0, color: '#ffffff' });
+      pl.bringToFront();
+      map.fitBounds(pl.getBounds().pad(0.1));
+    } else {
+      pl.setStyle({ weight: 2, opacity: 0.3 });
+    }
+  });
+  
+  // Highlight the log entry
+  document.querySelectorAll('.log-entry').forEach(el => {
+    el.classList.remove('highlighted');
+  });
+  const target = document.querySelector(`.log-entry[data-seg="${segIdx}"]`);
+  if (target) {
+    target.classList.add('highlighted');
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+function renderMap() {
+  // Clear existing layers
+  allPolylines.forEach(pl => map.removeLayer(pl));
+  allMarkers.forEach(m => map.removeLayer(m));
+  allPolylines = [];
+  allMarkers = [];
+  
+  if (filteredSegments.length === 0) return;
+  
+  const bounds = [];
+  
+  filteredSegments.forEach((seg, segIdx) => {
+    if (seg.points.length < 2) return;
+    
+    const latlngs = seg.points.map(p => [p.lat, p.lng]);
+    const color = getActivityColor(seg.activityType);
+    
+    const polyline = L.polyline(latlngs, {
+      color: color,
+      weight: 3,
+      opacity: 0.8,
+      smoothFactor: 1
+    }).addTo(map);
+    
+    polyline.on('click', () => highlightSegment(segIdx));
+    
+    // Add tooltip with activity info
+    const actLabel = activityLabels[seg.activityType] || '';
+    const dist = seg.distanceMeters ? ` (${(seg.distanceMeters / 1000).toFixed(2)} km)` : '';
+    polyline.bindTooltip(`${actLabel}${dist}`, { sticky: true });
+    
+    allPolylines.push(polyline);
+    
+    // Add start marker
+    const startPt = seg.points[0];
+    const startMarker = L.circleMarker([startPt.lat, startPt.lng], {
+      radius: 5,
+      color: color,
+      fillColor: color,
+      fillOpacity: 1,
+      weight: 2
+    }).addTo(map);
+    startMarker.bindTooltip(`Start: ${formatTime(startPt.time)}`);
+    allMarkers.push(startMarker);
+    
+    // Add end marker
+    const endPt = seg.points[seg.points.length - 1];
+    const endMarker = L.circleMarker([endPt.lat, endPt.lng], {
+      radius: 5,
+      color: color,
+      fillColor: '#fff',
+      fillOpacity: 1,
+      weight: 2
+    }).addTo(map);
+    endMarker.bindTooltip(`End: ${formatTime(endPt.time)}`);
+    allMarkers.push(endMarker);
+    
+    // Extend bounds
+    latlngs.forEach(ll => bounds.push(ll));
+  });
+  
+  if (bounds.length > 0) {
+    map.fitBounds(bounds, { padding: [30, 30] });
+  }
+}
+
+function getSelectedActivities() {
+  const checked = [];
+  document.querySelectorAll('.activity-cb:checked').forEach(cb => {
+    checked.push(cb.value);
+  });
+  return checked;
+}
+
+function applyFilters() {
+  const dateVal = document.getElementById('filter-date').value;
+  const selectedActivities = getSelectedActivities();
+  
+  filteredSegments = allSegments.filter(seg => {
+    // Date filter
+    if (dateVal && seg.startTime && !seg.startTime.startsWith(dateVal)) {
+      return false;
+    }
+    // Activity filter
+    const segType = seg.activityType || '__unknown__';
+    if (!selectedActivities.includes(segType)) {
+      return false;
+    }
+    return true;
+  });
+  updateDisplay();
+}
+
+function clearFilters() {
+  document.getElementById('filter-date').value = '';
+  document.querySelectorAll('.activity-cb').forEach(cb => cb.checked = true);
+  filteredSegments = [...allSegments];
+  updateDisplay();
+}
+
+// Re-filter when any checkbox changes
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.activity-cb').forEach(cb => {
+    cb.addEventListener('change', applyFilters);
+  });
+});
+
+function updateDisplay() {
+  document.getElementById('header-stats').textContent = `${filteredSegments.length} segments`;
+  renderMap();
+  buildLog();
+  buildSummary();
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  if (tab === 'log') {
+    document.querySelectorAll('.tab-btn')[0].classList.add('active');
+    document.getElementById('log-list').classList.add('active');
+  } else {
+    document.querySelectorAll('.tab-btn')[1].classList.add('active');
+    document.getElementById('summary-content').classList.add('active');
+  }
+}
+
+// Initialize
+allSegments = TIMELINE_DATA;
+filteredSegments = [...allSegments];
+
+// Populate date filter with available dates
+const dates = new Set();
+allSegments.forEach(s => {
+  if (s.startTime) dates.add(s.startTime.substring(0, 10));
+});
+const sortedDates = [...dates].sort();
+if (sortedDates.length > 0) {
+  document.getElementById('filter-date').min = sortedDates[0];
+  document.getElementById('filter-date').max = sortedDates[sortedDates.length - 1];
+}
+
+updateDisplay();
+</script>
+</body>
+</html>
